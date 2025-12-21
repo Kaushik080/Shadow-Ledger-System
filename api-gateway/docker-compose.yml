@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: api-gateway-postgres
+    environment:
+      POSTGRES_DB: shadow_ledger
+      POSTGRES_USER: shadow_user
+      POSTGRES_PASSWORD: shadow_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Uncomment to auto-init schema on first run; place SQL files in ./db-init
+      # - ./db-init:/docker-entrypoint-initdb.d
+    networks:
+      - gateway-net
+
+  api-gateway:
+    build:
+      context: .
+    image: shadow/api-gateway:latest
+    container_name: api-gateway
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: shadow_ledger
+      DB_USER: shadow_user
+      DB_PASSWORD: shadow_pass
+      SECURITY_JWT_SECRET: secretKeyForDemo
+      # Point to independently run backend services on localhost
+      SERVICES_EVENT_SERVICE: http://localhost:8086
+      SERVICES_LEDGER_SERVICE: http://localhost:8087
+      SERVICES_DRIFT_SERVICE: http://localhost:8088
+    ports:
+      - "8085:8085"
+    networks:
+      - gateway-net
+
+networks:
+  gateway-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+
