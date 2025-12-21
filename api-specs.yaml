@@ -1,0 +1,531 @@
+openapi: 3.0.3
+info:
+  title: Shadow Ledger System API
+  description: |
+    Banking backend system for processing financial events, maintaining shadow ledger,
+    and detecting drift between CBS and shadow balances.
+  version: 1.0.0
+  contact:
+    name: Shadow Ledger Team
+
+servers:
+  - url: http://localhost:8080
+    description: API Gateway (Local Development)
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Events
+    description: Financial event submission
+  - name: Shadow Ledger
+    description: Shadow balance queries
+  - name: Drift Detection
+    description: Drift check and corrections
+
+paths:
+  /auth/signup:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: Create a new user account with userId, username, password, and role
+      operationId: signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - username
+                - password
+                - role
+              properties:
+                userId:
+                  type: string
+                  description: Unique user identifier for login
+                  example: "user123"
+                username:
+                  type: string
+                  description: Display name
+                  example: "john_doe"
+                password:
+                  type: string
+                  format: password
+                  description: Password (will be hashed with Argon2)
+                  example: "SecurePass123!"
+                role:
+                  type: string
+                  enum: [user, auditor, admin]
+                  description: User role for RBAC
+                  example: "user"
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "User registered successfully"
+                  userId:
+                    type: string
+                    example: "user123"
+                  username:
+                    type: string
+                    example: "john_doe"
+                  role:
+                    type: string
+                    example: "user"
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: UserId or username already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/token:
+    post:
+      tags:
+        - Authentication
+      summary: Login and get JWT token
+      description: Authenticate with userId and password to receive JWT token
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - password
+              properties:
+                userId:
+                  type: string
+                  description: User ID for login
+                  example: "user123"
+                password:
+                  type: string
+                  format: password
+                  example: "SecurePass123!"
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT token (valid for 1 hour)
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout
+      description: Logout endpoint (JWT is stateless, just returns success)
+      operationId: logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+
+  /events:
+    post:
+      tags:
+        - Events
+      summary: Submit financial event
+      description: Submit a debit or credit event for processing
+      operationId: submitEvent
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TraceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Event'
+      responses:
+        '202':
+          description: Event accepted and queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "queued"
+                  eventId:
+                    type: string
+                    example: "E1001"
+                  traceId:
+                    type: string
+                    example: "7f3a2b1c-4d5e-6f7g-8h9i-0j1k2l3m4n5o"
+        '400':
+          description: Invalid event data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Duplicate eventId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /accounts/{accountId}/shadow-balance:
+    get:
+      tags:
+        - Shadow Ledger
+      summary: Get shadow balance
+      description: Retrieve the computed shadow balance for an account
+      operationId: getShadowBalance
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Account identifier
+          example: "A10"
+        - $ref: '#/components/parameters/TraceId'
+      responses:
+        '200':
+          description: Shadow balance retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShadowBalance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /drift-check:
+    post:
+      tags:
+        - Drift Detection
+      summary: Check drift between CBS and shadow balances
+      description: Submit CBS balance report and detect mismatches with shadow ledger
+      operationId: checkDrift
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TraceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CBSBalanceEntry'
+      responses:
+        '200':
+          description: Drift check completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriftCheckResponse'
+        '400':
+          description: Invalid CBS balance data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /correct/{accountId}:
+    post:
+      tags:
+        - Drift Detection
+      summary: Manual correction
+      description: Manually trigger a correction event for an account (admin only)
+      operationId: manualCorrection
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Account identifier
+          example: "A10"
+        - $ref: '#/components/parameters/TraceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualCorrectionRequest'
+      responses:
+        '200':
+          description: Correction event published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectionResponse'
+        '400':
+          description: Invalid correction data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/token endpoint
+
+  parameters:
+    TraceId:
+      name: X-Trace-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Distributed tracing ID
+      example: "7f3a2b1c-4d5e-6f7g-8h9i-0j1k2l3m4n5o"
+
+  schemas:
+    Event:
+      type: object
+      required:
+        - eventId
+        - accountId
+        - type
+        - amount
+        - timestamp
+      properties:
+        eventId:
+          type: string
+          description: Unique event identifier
+          example: "E1001"
+        accountId:
+          type: string
+          description: Account identifier
+          example: "A10"
+        type:
+          type: string
+          enum: [debit, credit]
+          description: Transaction type
+          example: "credit"
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          description: Transaction amount (must be positive)
+          example: 500.00
+        timestamp:
+          type: integer
+          format: int64
+          description: Event timestamp in milliseconds since Unix epoch
+          example: 1735561800000
+
+    ShadowBalance:
+      type: object
+      properties:
+        accountId:
+          type: string
+          example: "A10"
+        balance:
+          type: number
+          format: decimal
+          example: 750.00
+        lastEvent:
+          type: string
+          example: "E005"
+
+    CBSBalanceEntry:
+      type: object
+      required:
+        - accountId
+        - reportedBalance
+      properties:
+        accountId:
+          type: string
+          example: "A10"
+        reportedBalance:
+          type: number
+          format: decimal
+          example: 700.00
+
+    DriftResult:
+      type: object
+      properties:
+        accountId:
+          type: string
+          example: "A10"
+        shadowBalance:
+          type: number
+          format: decimal
+          example: 750.00
+        reportedBalance:
+          type: number
+          format: decimal
+          example: 700.00
+        difference:
+          type: number
+          format: decimal
+          example: -50.00
+        status:
+          type: string
+          enum: [MATCH, MISMATCH]
+          example: "MISMATCH"
+        mismatchType:
+          type: string
+          enum: [missing_credit, incorrect_debit, unknown]
+          example: "incorrect_debit"
+        correctionEventId:
+          type: string
+          example: "CORR-A10-7f3a2b1c"
+        message:
+          type: string
+          example: "Shadow ledger has extra balance of 50.00"
+
+    DriftCheckResponse:
+      type: object
+      properties:
+        totalAccounts:
+          type: integer
+          example: 100
+        mismatches:
+          type: integer
+          example: 3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriftResult'
+
+    ManualCorrectionRequest:
+      type: object
+      required:
+        - type
+        - amount
+      properties:
+        type:
+          type: string
+          enum: [credit, debit]
+          example: "credit"
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 50.00
+        reason:
+          type: string
+          example: "Manual adjustment for account reconciliation"
+
+    CorrectionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Correction event published"
+        correctionEventId:
+          type: string
+          example: "CORR-A10-7f3a2b1c"
+        accountId:
+          type: string
+          example: "A10"
+        type:
+          type: string
+          example: "credit"
+        amount:
+          type: number
+          format: decimal
+          example: 50.00
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "invalid_credentials"
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Unauthorized"
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Forbidden - insufficient role"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Internal server error"
+
+security:
+  - BearerAuth: []
+
