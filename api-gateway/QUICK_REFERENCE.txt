@@ -38,7 +38,7 @@ Expected: HTTP 201 with {"message":"User registered successfully",...}
 
 curl -X POST http://localhost:8080/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"userId":"user123","password":"SecurePass123!"}'
+  -d '{"userId":"user1","username": "demouser", password":"password"}'
 
 Expected: HTTP 200 with {"token":"eyJhbGc..."}
 
@@ -123,7 +123,7 @@ Example: DB_PORT=5434 ./gradlew bootRun
 
    curl -X POST http://localhost:8080/auth/token \
      -H "Content-Type: application/json" \
-     -d '{"userId":"user1","password":"password"}'
+     -d '{"userId":"user1","username" : "demouser", "password":"password"}'
 
 ╔══════════════════════════════════════════════════════════════════════╗
 ║  Remember: Always include Content-Type: application/json header!     ║
